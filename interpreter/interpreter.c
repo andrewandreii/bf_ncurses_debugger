@@ -46,24 +46,13 @@ void memory_dump(interpreter_t *i, FILE *stream) {
     }
 }
 
-#define interp_next_char(interp) \
-    if ((interp)->code[(interp)->pos.pos] == '\n') { \
-        ++ (interp)->pos.line_no; \
-        (interp)->pos.col_no = 0; \
-    } else { \
-        ++ (interp)->pos.col_no; \
-    } \
-    ++(interp)->pos.pos;
-
-#define interp_current_char(interp) (interp)->code[(interp)->pos.pos]
-
-#define interp_code_eof(interp) ((interp)->pos.pos >= (interp)->code_len)
-
-void interpreter_step(interpreter_t *i) {
+enum interp_action interpreter_step(interpreter_t *i) {
     if (interp_code_eof(i)) {
         i->state = DONE;
         return;
     }
+
+    enum interp_action action;
     
     switch (interp_current_char(i)) {
         case '+': {
@@ -88,16 +77,27 @@ void interpreter_step(interpreter_t *i) {
             if (i->memory[i->mem_y][i->mem_x]) {
                 i->loop_pos[i->loop_depth] = i->pos;
                 ++ i->loop_depth;
+                action = ENTER_LOOP;
             } else {
-                while (!interp_code_eof(i) && interp_current_char(i) != ']') {
+                interp_next_char(i);
+                int paired = 0;
+                while (!interp_code_eof(i)) {
+                    if (interp_current_char(i) == '[') {
+                        ++ paired;
+                    } else if (interp_current_char(i) == ']') {
+                        if (!paired) {
+                            break;
+                        }
+                        -- paired;
+                    }
                     interp_next_char(i);
                 }
-                interp_next_char(i);
             }
         } break;
         case ']': {
             if (!i->memory[i->mem_y][i->mem_x]) {
                 -- i->loop_depth;
+                action = EXIT_LOOP;
             } else {
                 i->pos = i->loop_pos[i->loop_depth - 1];
             }
@@ -120,4 +120,6 @@ void interpreter_step(interpreter_t *i) {
     while (!interp_code_eof(i) && strchr("+-><[],.", interp_current_char(i)) == NULL) {
         interp_next_char(i);
     }
+
+    return action;
 }

@@ -1,7 +1,10 @@
 #include "debugger.h"
 
-// int mem_width;
-// const int mem_cell_width = 9;
+WINDOW **mem_cells;
+int mem_cell_len, mem_cell_start;
+const int mem_cell_width = 12;
+const int mem_cell_spacing = 2;
+// const int mem_cell_height
 
 WINDOW *code, *mem, *code_inside;
 
@@ -30,9 +33,33 @@ void draw_windows(void) {
     if (!mem) {
         mem = newwin(y - mem_y + 1, x - 1, mem_y - 1, 0);
         refresh();
-        box(mem, 0, 0);
+        // box(mem, 0, 0);
         wrefresh(mem);
     }
+
+    touchwin(mem);
+    mem_cell_len = (x - 2) / (mem_cell_width + mem_cell_spacing);
+    mem_cell_start = (x - 2) % (mem_cell_width + mem_cell_spacing) / 2;
+    mem_cells = malloc(sizeof(WINDOW *) * mem_cell_len);
+    int i;
+    for (i = 0; i < mem_cell_len; ++ i) {
+        mem_cells[i] = derwin(mem, getmaxy(mem) - 2, mem_cell_width, 1, i * (mem_cell_width + mem_cell_spacing) + mem_cell_start);
+        box(mem_cells[i], 0, 0);
+    }
+    wrefresh(mem);
+}
+
+void print_memory(interpreter_t *interp, int start_addr) {
+    int maxy = getmaxy(mem_cells[0]);
+
+    int i;
+    for (i = 0; i < mem_cell_len; ++ i) {
+        mvwprintw(mem_cells[i], 2, 2 + 2, "%04d", start_addr + i);
+        mvwprintw(mem_cells[i], maxy - 3, 2 + 2, "% 4d", interp->memory[interp->mem_y][start_addr + i]);
+        mvwaddch(mem_cells[i], 1, 2, interp->mem_x == start_addr + i ? '*' : ' ');
+    }
+    touchwin(mem);
+    wrefresh(mem);
 }
 
 span_t *split_code_lines(interpreter_t *interp, int *line_count) {
@@ -117,8 +144,6 @@ void init(void) {
 
     curs_set(2);
 
-    // addch(ACS_HLINE);
-
     signal(SIGINT, quit);
 }
 
@@ -167,11 +192,13 @@ int main(int argc, char *argv[]) {
     print_code(interp, spans, len, 0, 0);
     wrefresh(code_inside);
 
-    int code_inside_x, code_inside_y;
+    int code_inside_x  [[maybe_unused]], code_inside_y;
     getmaxyx(code_inside, code_inside_y, code_inside_x);
 
     int vscroll, hscroll;
     vscroll = hscroll = 0;
+
+    int mem_scroll = 0;
     
     mousemask(BUTTON4_PRESSED | BUTTON5_PRESSED, NULL);
     
@@ -183,9 +210,31 @@ int main(int argc, char *argv[]) {
             } break;
             case '\n': {
                 interpreter_step(interp);
+
+                if (mem_scroll + mem_cell_len - 1 < interp->mem_x) {
+                    ++ mem_scroll;
+                } else if (mem_scroll > interp->mem_x) {
+                    -- mem_scroll;
+                }
+
+                print_memory(interp, mem_scroll);
                 wmove(code_inside, interp->pos.line_no - vscroll, interp->pos.col_no - hscroll);
                 wrefresh(code_inside);
-                // update_memory(interp);
+            } break;
+            case 'l': {
+                if (interp->loop_depth <= 0) return;
+
+                while (interpreter_step(interp) != EXIT_LOOP);
+
+                if (mem_scroll + mem_cell_len - 1 < interp->mem_x) {
+                    mem_scroll = interp->mem_x - mem_cell_len - 1;
+                } else if (mem_scroll > interp->mem_x) {
+                    mem_scroll = interp->mem_x;
+                }
+                
+                print_memory(interp, mem_scroll);
+                wmove(code_inside, interp->pos.line_no - vscroll, interp->pos.col_no - hscroll);
+                wrefresh(code_inside);
             } break;
             case KEY_MOUSE: {
                 MEVENT ev;

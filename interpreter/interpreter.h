@@ -5,6 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+enum interp_action {
+    NOTIMP, ENTER_LOOP, EXIT_LOOP
+};
+
 enum interpreter_state_type {
     NORMAL, DONE
 };
@@ -50,6 +54,6 @@ typedef struct {
 
 interpreter_t *make_interpreter(FILE *source, FILE *input, FILE *output, size_t memory_len);
 void memory_dump(interpreter_t *i, FILE *stream);
-void interpreter_step(interpreter_t *i);
+enum interp_action interpreter_step(interpreter_t *i);
 
 #endif
