@@ -1,0 +1,4 @@
+*.o
+debugger
+log
+interpreter/input
