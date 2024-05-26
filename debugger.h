@@ -5,7 +5,6 @@
 #include <stdio.h>
 
 #include <ncurses.h>
-// #include <panel.h>
 
 #include <signal.h>
 #include <time.h>

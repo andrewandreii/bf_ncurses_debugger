@@ -1,4 +1,4 @@
-libs=ncurses panel
+libs=ncurses
 
 LFLAGS=`pkgconf --libs $(libs)`
 sources=$(wildcard *.c interpreter/*.c)
