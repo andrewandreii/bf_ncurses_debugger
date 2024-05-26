@@ -1,3 +1,8 @@
+[
+code by Daniel Cristofani
+see at: https://codegolf.stackexchange.com/a/142608
+]
+
 >+>>>>>
 ++>+>>+++>+>>+
 
