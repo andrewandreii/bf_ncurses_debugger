@@ -38,7 +38,7 @@ interpreter_t *make_interpreter(FILE *source, FILE *input, FILE *output, size_t 
 void memory_dump(interpreter_t *i, FILE *stream) {
     size_t j, k;
     for (j = 0; j < i->memory_height; ++ j) {
-        fprintf(stream, "[%d] = ", j);
+        fprintf(stream, "[%lu] = ", j);
         for (k = 0; k < i->memory_len; ++ k) {
             fprintf(stream, "%c[%d; %lu] ", (i->mem_x == k && i->mem_y == j) ? '*' : ' ', i->memory[j][k], k);
         }
@@ -49,7 +49,7 @@ void memory_dump(interpreter_t *i, FILE *stream) {
 enum interp_action interpreter_step(interpreter_t *i) {
     if (interp_code_eof(i)) {
         i->state = DONE;
-        return;
+        return NOTIMP;
     }
 
     enum interp_action action;
@@ -66,12 +66,14 @@ enum interp_action interpreter_step(interpreter_t *i) {
                 i->mem_x = -1;
             }
             ++ i->mem_x;
+            action = MOVE_RIGHT;
         } break;
         case '<': {
             if (i->mem_x <= 0) {
                 i->mem_x = i->memory_len;
             }
             -- i->mem_x;
+            action = MOVE_LEFT;
         } break;
         case '[': {
             if (i->memory[i->mem_y][i->mem_x]) {

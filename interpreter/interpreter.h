@@ -6,7 +6,7 @@
 #include <string.h>
 
 enum interp_action {
-    NOTIMP, ENTER_LOOP, EXIT_LOOP
+    NOTIMP, ENTER_LOOP, EXIT_LOOP, MOVE_LEFT, MOVE_RIGHT
 };
 
 enum interpreter_state_type {
