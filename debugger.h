@@ -8,6 +8,7 @@
 // #include <panel.h>
 
 #include <signal.h>
+#include <time.h>
 
 #include <locale.h>
 

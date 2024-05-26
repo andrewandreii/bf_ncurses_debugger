@@ -1,12 +1,27 @@
 #include "debugger.h"
 
+#define TMP_DIR "/tmp/"
+
 WINDOW **mem_cells;
 int mem_cell_len, mem_cell_start;
 const int mem_cell_width = 12;
 const int mem_cell_spacing = 2;
-// const int mem_cell_height
 
-WINDOW *code, *mem, *code_inside;
+WINDOW *code, *mem, *code_inside, *help_win;
+
+const char *help_text =
+"Command line arguments:\n"
+"-h - prints this message\n"
+"-i - sets the input file for the script (otherwise you get asked to input each character)\n"
+// TODO: add this option
+"-o - sets the output file (otherwise it gets printed in the debugger)\n"
+"\n"
+"Inside the editor:\n"
+"Enter - next instruction\n"
+"q - exit\n"
+"Mouse wheel - vertical scroll the code\n"
+"Shift + Mouse wheel - horizontal scroll the code\n"
+"l - run until loop is done\n";
 
 FILE *source = NULL;
 
@@ -33,7 +48,6 @@ void draw_windows(void) {
     if (!mem) {
         mem = newwin(y - mem_y + 1, x - 1, mem_y - 1, 0);
         refresh();
-        // box(mem, 0, 0);
         wrefresh(mem);
     }
 
@@ -47,6 +61,13 @@ void draw_windows(void) {
         box(mem_cells[i], 0, 0);
     }
     wrefresh(mem);
+
+    // help_win = newwin(sizeof(help_text) / sizeof(*help_text), 50, 0, 0);
+    // refresh();
+    // for (i = 0; i < sizeof(help_text) / sizeof(*help_text); ++ i) {
+    //     mvwaddstr(help_win, i, 1, help_text[i]);
+    // }
+    // wrefresh(help_win);
 }
 
 void print_memory(interpreter_t *interp, int start_addr) {
@@ -54,8 +75,10 @@ void print_memory(interpreter_t *interp, int start_addr) {
 
     int i;
     for (i = 0; i < mem_cell_len; ++ i) {
-        mvwprintw(mem_cells[i], 2, 2 + 2, "%04d", start_addr + i);
-        mvwprintw(mem_cells[i], maxy - 3, 2 + 2, "% 4d", interp->memory[interp->mem_y][start_addr + i]);
+        int addr = start_addr + i;
+        addr += (addr < 0 ? interp->memory_len : 0);
+        mvwprintw(mem_cells[i], 1, 2 + 2, "%05d", addr);
+        mvwprintw(mem_cells[i], maxy - 2, 2 + 2, "% 4d", interp->memory[interp->mem_y][addr]);
         mvwaddch(mem_cells[i], 1, 2, interp->mem_x == start_addr + i ? '*' : ' ');
     }
     touchwin(mem);
@@ -63,14 +86,15 @@ void print_memory(interpreter_t *interp, int start_addr) {
 }
 
 span_t *split_code_lines(interpreter_t *interp, int *line_count) {
-    int lines = 0;
+    int lines = 1;
     size_t i = 0;
     while (i < interp->code_len) {
-        if (interp_char_at(interp, i) == '\n') {
+        if (interp_char_at(interp, i) == '\n' || interp_char_at(interp, i) == EOF) {
             ++ lines;
         }
         ++ i;
     }
+    fprintf(logfile, "lines: %d\n", lines);
 
     span_t *line_spans = malloc(sizeof(span_t) * lines);
     size_t top = 0;
@@ -78,13 +102,14 @@ span_t *split_code_lines(interpreter_t *interp, int *line_count) {
     size_t start;
     start = i = 0;
     while (i < interp->code_len) {
-        if (interp_char_at(interp, i) == '\n') {
+        if (interp_char_at(interp, i) == '\n' || interp_char_at(interp, i) == EOF) {
             line_spans[top] = (span_t){start, i - start};
             ++ top;
             start = i + 1;
         }
         ++ i;
     }
+    line_spans[top] = (span_t){start, i - start};
 
     *line_count = lines;
     return line_spans;
@@ -147,7 +172,7 @@ void init(void) {
     signal(SIGINT, quit);
 }
 
-void die(char *msg, int error) {
+void die(const char *msg, int error) {
     fprintf(stderr, msg);
     quit(error);
 }
@@ -156,13 +181,41 @@ void quit(int sig) {
     nocbreak();
     echo();
 
-    exit_curses(sig);
+    intrflush(stdscr, TRUE);
+    keypad(stdscr, FALSE);
+
+    endwin();
+    // exit_curses(sig);
+    exit(sig);
 }
 
+FILE *infile, *outfile;
+int is_infile_tmp, is_outfile_tmp;
 void handle_args(int argc, char *argv[]) {
     int i;
     for (i = 1; i < argc; ++ i) {
-        // TODO: other options
+        if (!strcmp(argv[i], "-h")) {
+            die(help_text, 0);
+        } else if (!strcmp(argv[i], "-i")) {
+            if (infile) die("Cannot read from multiple files.", -1);
+
+            if (i + 1 >= argc) die("-i requires an argument.", -1);
+
+            infile = fopen(argv[i + 1], "r");
+            if (!infile) die("Cannot open file specified for -i.", -1);
+
+            ++ i;
+        } else if (!strcmp(argv[i], "-o")) {
+            if (outfile) die("Cannot write to multiple files.", -1);
+
+            if (i + 1 >= argc) die("-i requires an argument.", -1);
+
+            outfile = fopen(argv[i + 1], "r");
+            if (!outfile) die("Cannot open file specified for -i.", -1);
+
+            ++ i;
+        }
+        
         if (source) {
             die("Cannot debug more than one file.\n", -1);
         }
@@ -172,21 +225,14 @@ void handle_args(int argc, char *argv[]) {
         }
     }
 
+    // exit(source);
     if (!source) {
         die("Specify a source file.\n", -1);
     }
 }
 
-int main(int argc, char *argv[]) {
-    logfile = fopen("log", "w");
-    
-    handle_args(argc, argv);
-
-    init();
-
-    draw_windows();
-
-    interpreter_t *interp = make_interpreter(source, stdin, stdout, 100);
+void loop(void) {
+    interpreter_t *interp = make_interpreter(source, infile, outfile, 300);
     int len;
     span_t *spans = split_code_lines(interp, &len);
     print_code(interp, spans, len, 0, 0);
@@ -199,9 +245,9 @@ int main(int argc, char *argv[]) {
     vscroll = hscroll = 0;
 
     int mem_scroll = 0;
-    
+
     mousemask(BUTTON4_PRESSED | BUTTON5_PRESSED, NULL);
-    
+
     while (1) {
         int c = wgetch(stdscr);
         switch (c) {
@@ -209,12 +255,27 @@ int main(int argc, char *argv[]) {
                 exit(0);
             } break;
             case '\n': {
-                interpreter_step(interp);
-
-                if (mem_scroll + mem_cell_len - 1 < interp->mem_x) {
-                    ++ mem_scroll;
-                } else if (mem_scroll > interp->mem_x) {
-                    -- mem_scroll;
+                // NOTE: this is done because we want to have a notification that we are reading input
+                if (is_infile_tmp && interp_current_char(interp) == ',') {
+                    mvwaddch(code_inside, 1, 1, '*');
+                    int in = getchar();
+                    // TODO: notify user that the debugger is wating for input
+                    fputc(in, infile);
+                    mvwaddch(code_inside, 1, 1, ' ');
+                    fprintf(logfile, "read %d\n", in);
+                    fflush(logfile);
+                    fseek(infile, -1, SEEK_CUR);
+                }
+                fprintf(outfile, "Entering the big fuckup\n");
+                fflush(outfile);
+                enum interp_action action = interpreter_step(interp);
+                // TODO: handle action == DONE
+                if (interp->mem_x < mem_scroll || interp->mem_x > mem_scroll + mem_cell_len) {
+                    if (action == MOVE_RIGHT) {
+                        ++ mem_scroll;
+                    } else if (action == MOVE_LEFT) {
+                        -- mem_scroll;
+                    }
                 }
 
                 print_memory(interp, mem_scroll);
@@ -222,16 +283,14 @@ int main(int argc, char *argv[]) {
                 wrefresh(code_inside);
             } break;
             case 'l': {
-                if (interp->loop_depth <= 0) return;
+                if (interp->loop_depth <= 0) {
+                    continue;
+                }
 
                 while (interpreter_step(interp) != EXIT_LOOP);
 
-                if (mem_scroll + mem_cell_len - 1 < interp->mem_x) {
-                    mem_scroll = interp->mem_x - mem_cell_len - 1;
-                } else if (mem_scroll > interp->mem_x) {
-                    mem_scroll = interp->mem_x;
-                }
-                
+                mem_scroll = interp->mem_x - mem_cell_len / 2;
+
                 print_memory(interp, mem_scroll);
                 wmove(code_inside, interp->pos.line_no - vscroll, interp->pos.col_no - hscroll);
                 wrefresh(code_inside);
@@ -271,6 +330,31 @@ int main(int argc, char *argv[]) {
             }
         }
     }
+}
+
+int main(int argc, char *argv[]) {
+    logfile = fopen("log", "w");
+    
+    handle_args(argc, argv);
+    
+    char tmp_template[] = TMP_DIR "bf_debugger_XXXXXX";
+    if (!infile) {
+        infile = fdopen(mkstemp(tmp_template), "w+");
+        strcpy(tmp_template, TMP_DIR "bf_debugger_XXXXXX");
+        is_infile_tmp = 1;
+    }
+    if (!outfile) {
+        outfile = fdopen(mkstemp(tmp_template), "w+");
+        is_outfile_tmp = 1;
+    }
+    fprintf(infile, "yo mama.\n");
+    fflush(infile);
+
+    init();
+
+    draw_windows();
+    
+    loop();
 
     quit(0);
 }
